@@ -7,6 +7,7 @@ import json
 import logging
 import urllib2
 import urlparse
+from twilio.rest import Client
 
 # Shorten MP3 URL for SMS length limits
 def shorten(url):
@@ -25,14 +26,14 @@ def shorten(url):
 # Outbput TwilML to record a message and pass it to the RecordHandler
 class CallHandler(webapp.RequestHandler):
     def get(self):
-	logging.info('Recieved call: ' + self.request.query_string)
+        logging.info('Recieved call: ' + self.request.query_string)
 
-        # Set service key
-	if (self.request.get("service_key")):
-	    service_key = self.request.get("service_key")
-	    logging.debug("service_key = \"" + service_key + "\"")
-	else:
-	    logging.error("No service key specified")
+            # Set service key
+        if (self.request.get("service_key")):
+            service_key = self.request.get("service_key")
+            logging.debug("service_key = \"" + service_key + "\"")
+        else:
+            logging.error("No service key specified")
 
         # Set greeting
         if (self.request.get("greeting")):
@@ -40,34 +41,34 @@ class CallHandler(webapp.RequestHandler):
             logging.debug("greeting = \"" + greeting + "\"")
         else:
             logging.info("Using default greeting")
-            greeting = "Leave a message to contact the on call staff."
+            greeting = "Hello. You have reached the " + company_name + " emergency contact number. Please leave a message to contact the on call staff. You can also send an SMS message to this number."
         
         # Determine the RecordHandler URL to use based on the current base URL
         o = urlparse.urlparse(self.request.url)
         recordURL = urlparse.urlunparse((o.scheme, o.netloc, 'record?service_key=' + service_key, '', '', ''))
-	logging.debug("recordURL = \"" + recordURL + "\"")
+        logging.debug("recordURL = \"" + recordURL + "\"")
 
         response = (
             "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>"
             "<Response>"
             "        <Say>" + greeting + "</Say>"
             "        <Record action=\"" + recordURL + "\" method=\"GET\"/>"
-            "        <Say>I did not receive a recording.</Say>"
+            "        <Say>Sorry, I couldn't get that. Please call back and try again or send an SMS message instead.</Say>"
             "</Response>")
-	logging.debug("response = \"" + response + "\"")
+        logging.debug("response = \"" + response + "\"")
         self.response.out.write(response)
 
 # Open a PagerDuty incident based on an SMS message
 class SMSHandler(webapp.RequestHandler):
     def get(self):
-	logging.info('Received SMS: ' + self.request.query_string)
+        logging.info('Received SMS: ' + self.request.query_string)
 
         # Set service key
-	if (self.request.get("service_key")):
-	    service_key = self.request.get("service_key")
-	    logging.debug("service_key = \"" + service_key + "\"")
-	else:
-	    logging.error("No service key specified")
+        if (self.request.get("service_key")):
+            service_key = self.request.get("service_key")
+            logging.debug("service_key = \"" + service_key + "\"")
+        else:
+            logging.error("No service key specified")
 
         incident = '{"service_key": "%s","incident_key": "%s","event_type": "trigger","description": "%s %s"}'%(service_key,self.request.get("From"),self.request.get("From"),self.request.get("Body"))
 
@@ -76,10 +77,52 @@ class SMSHandler(webapp.RequestHandler):
             results = urllib2.urlopen(r)
             logging.debug(incident)
             logging.debug(results)
+            
+            response = (
+                "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>"
+                "<Response>"
+                "        <Message>The system has accepted your message and created an incident. On call staff are being contacted now.</Message>"
+                "</Response>")
+            logging.debug("response = \"" + response + "\"")
+            self.response.out.write(response)
+            
         except urllib2.HTTPError, e:
             logging.warn( e.code )
         except urllib2.URLError, e:
             logging.warn(e.reason)     
+
+# Send a confirmation to a user who opened an incident
+class ACKHandler(webapp.RequestHandler):
+    def get(self):
+        logging.info('Received ACK: ' + self.request.query_string)
+
+        # Set service key
+        if (self.request.get("account_sid")):
+            account_sid = self.request.get("account_sid")
+            logging.debug("account_sid = \"" + account_sid + "\"")
+        else:
+            logging.error("No account_sid specified")
+
+        if (self.request.get("token")):
+            token = self.request.get("token")
+        else:
+            logging.error("No token specified")
+
+        if (self.request.get("to")):
+            to = self.request.get("to")
+        else:
+            logging.error("No to specified")
+                          
+        try:
+            client = Client(account_sid, auth_token)
+            message = client.messages.create(
+                              body="Your request has been acknowledged by on call staff and is being looked into. Please refer to the ticket system for further updates: https://work.metasushi.net/",
+                              from_=twilio_from_number,
+                              to=to
+                          )
+            
+        except e:
+            logging.warn( e.code )   
 
 # Shorten the URL and trigger a PagerDuty incident
 class RecordHandler(webapp.RequestHandler):
@@ -87,11 +130,11 @@ class RecordHandler(webapp.RequestHandler):
         logging.info('Received recording: ' + self.request.query_string)
 
         # Set service key
-	if (self.request.get("service_key")):
-	    service_key = self.request.get("service_key")
-	    logging.debug("service_key = \"" + service_key + "\"")
-	else:
-	    logging.error("No service key specified")
+        if (self.request.get("service_key")):
+            service_key = self.request.get("service_key")
+            logging.debug("service_key = \"" + service_key + "\"")
+        else:
+            logging.error("No service key specified")
 
         recUrl = self.request.get("RecordingUrl")
         phonenumber = self.request.get("From")
@@ -103,13 +146,13 @@ class RecordHandler(webapp.RequestHandler):
         self.response.out.write(response)
 
         if(recUrl):
-	    logging.debug('Recording URL: ' + recUrl)
+            logging.debug('Recording URL: ' + recUrl)
             recUrl = recUrl + '.mp3' # Append .mp3 to improve playback on more devices
         else:
-	    logging.warn('No recording URL found')
+            logging.warn('No recording URL found')
             recUrl = ""
 
-	shrten = "Error"
+        shrten = "Error"
         try:
             shrten = shorten(recUrl)
         except urllib2.HTTPError, e:
@@ -135,16 +178,18 @@ class RecordHandler(webapp.RequestHandler):
 # A somewhat descriptive index page
 class IndexHandler(webapp.RequestHandler):
     def get(self):
+        logging.info("index")
         response = (
-                "<html>"
-                "<h1>phoneduty</h1>"
-		"<p><a href=\"http://www.github.com/dsshafer/phoneduty\">http://www.github.com/dsshafer/phoneduty</a></p>"
-                "</html>")
+            "<html>"
+            "<h1>phoneduty</h1>"
+	        "<p><a href=\"http://www.github.com/dsshafer/phoneduty\">http://www.github.com/dsshafer/phoneduty</a></p>"
+            "</html>")
         self.response.out.write(response)
 
 app = webapp.WSGIApplication([
     ('/call', CallHandler),
     ('/record', RecordHandler),
     ('/sms', SMSHandler),
+    ('/ack', ACKHandler),
     ('/', IndexHandler)],
     debug=True)
