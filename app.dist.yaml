@@ -2,6 +2,14 @@ runtime: python27
 api_version: 1
 threadsafe: yes
 
+# Get twilio values from https://www.twilio.com/console
+env_variables:
+  COMPANY_NAME: Test Co
+  TWILIO_SID: S11111111
+  TWILIO_TOKEN: xxxxxxxx
+  TWILIO_FROM_NUMBER: +12223334455
+  TICKET_SYSTEM_URL: https://example.com
+  
 handlers:
 - url: /favicon\.ico
   static_files: favicon.ico
@@ -13,3 +21,6 @@ handlers:
 libraries:
 - name: django
   version: latest
+- name: ssl
+  version: latest
+

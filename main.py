@@ -8,6 +8,8 @@ import logging
 import urllib2
 import urlparse
 from twilio.rest import Client
+import os
+import sys
 
 # Shorten MP3 URL for SMS length limits
 def shorten(url):
@@ -41,7 +43,7 @@ class CallHandler(webapp.RequestHandler):
             logging.debug("greeting = \"" + greeting + "\"")
         else:
             logging.info("Using default greeting")
-            greeting = "Hello. You have reached the " + company_name + " emergency contact number. Please leave a message to contact the on call staff. You can also send an SMS message to this number."
+            greeting = "Hello. You have reached the " + os.environ['COMPANY_NAME'] + " emergency contact number. Please leave a message to contact the on call staff. You can also send an SMS message to this number."
         
         # Determine the RecordHandler URL to use based on the current base URL
         o = urlparse.urlparse(self.request.url)
@@ -75,8 +77,8 @@ class SMSHandler(webapp.RequestHandler):
         try:
             r = urllib2.Request("http://events.pagerduty.com/generic/2010-04-15/create_event.json", incident) #Note according to the API this should be retried on failure
             results = urllib2.urlopen(r)
-            logging.debug(incident)
-            logging.debug(results)
+            logging.debug(results.getcode())
+            logging.debug(results.info())
             
             response = (
                 "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>"
@@ -93,37 +95,33 @@ class SMSHandler(webapp.RequestHandler):
 
 # Send a confirmation to a user who opened an incident
 class ACKHandler(webapp.RequestHandler):
-    def get(self):
-        logging.info('Received ACK: ' + self.request.query_string)
+    def post(self):
+        logging.info('Received webhook: ' + self.request.body)
 
-        # Set service key
-        if (self.request.get("account_sid")):
-            account_sid = self.request.get("account_sid")
-            logging.debug("account_sid = \"" + account_sid + "\"")
-        else:
-            logging.error("No account_sid specified")
+        client = Client(os.environ['TWILIO_SID'], os.environ['TWILIO_TOKEN'])
 
-        if (self.request.get("token")):
-            token = self.request.get("token")
-        else:
-            logging.error("No token specified")
-
-        if (self.request.get("to")):
-            to = self.request.get("to")
-        else:
-            logging.error("No to specified")
-                          
-        try:
-            client = Client(account_sid, auth_token)
-            message = client.messages.create(
-                              body="Your request has been acknowledged by on call staff and is being looked into. Please refer to the ticket system for further updates: https://work.metasushi.net/",
-                              from_=twilio_from_number,
-                              to=to
-                          )
+        req = json.loads(self.request.body)
+        for msg in req['messages']: 
+            to = msg['incident']['title'].split()[0]
+            title = msg['incident']['title'].split(' ', 1)[1]
+            if to and title and to[0] == "+":
+                if (msg['event'] == "incident.acknowledge"):
+                    to = msg['incident']['title'].split()[0]
+                    title = msg['incident']['title'].split(' ', 1)[1]
+                    message = client.messages.create(
+                                  body='The request "' + title + '" has been acknowledged by on call staff and is being looked into. Please refer to the ticket system for further updates: ' + os.environ['TICKET_SYSTEM_URL'],
+                                  from_=os.environ['TWILIO_FROM_NUMBER'],
+                                  to=to
+                              )
+                    logging.debug("ACK message = \"" + message.sid + "\"")
+                if (msg['event'] == "incident.resolve"):
+                    message = client.messages.create(
+                                  body='The request "' + title + '" has been marked resolved by on call staff. Please refer to the ticket system for further updates: ' + os.environ['TICKET_SYSTEM_URL'],
+                                  from_=os.environ['TWILIO_FROM_NUMBER'],
+                                  to=to
+                              )
+                    logging.debug("resolve message = \"" + message.sid + "\"")
             
-        except e:
-            logging.warn( e.code )   
-
 # Shorten the URL and trigger a PagerDuty incident
 class RecordHandler(webapp.RequestHandler):
     def get(self):
