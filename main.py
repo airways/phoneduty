@@ -3,6 +3,7 @@
 
 from google.appengine.ext import webapp
 from google.appengine.ext.webapp.util import run_wsgi_app
+from google.appengine.api import memcache
 import json
 import logging
 import urllib2
@@ -64,7 +65,7 @@ class CallHandler(webapp.RequestHandler):
 class SMSHandler(webapp.RequestHandler):
     def get(self):
         logging.info('Received SMS: ' + self.request.query_string)
-
+        
         # Set service key
         if (self.request.get("service_key")):
             service_key = self.request.get("service_key")
@@ -96,7 +97,18 @@ class SMSHandler(webapp.RequestHandler):
 # Send a confirmation to a user who opened an incident
 class ACKHandler(webapp.RequestHandler):
     def post(self):
-        logging.info('Received webhook: ' + self.request.body)
+        logging.info('Received ACK webhook')
+
+        webhook_id = self.request.headers['X-Webhook-Id']
+        if memcache.get(webhook_id) != None:
+            logging.error("webhook_id already handled, ignoring duplicate " + webhook_id)
+            return
+        
+        logging.info("Handling webhook_id " + webhook_id)
+        memcache.add(webhook_id, "1")
+
+
+        logging.info('body: ' + self.request.body)
 
         client = Client(os.environ['TWILIO_SID'], os.environ['TWILIO_TOKEN'])
 
