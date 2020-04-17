@@ -84,7 +84,7 @@ class SMSHandler(webapp.RequestHandler):
             response = (
                 "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>"
                 "<Response>"
-                "        <Message>The system has accepted your message and created an incident. On call staff are being contacted now.</Message>"
+                "        <Message>The system has accepted your message and created an incident. On call staff are being contacted now. You will be notified when the incident is acknowledge and when it is marked resolved. Sending additional messages will open additional incidents, please do this only after this incident is marked resolved and you believe it is not yet resolved.</Message>"
                 "</Response>")
             logging.debug("response = \"" + response + "\"")
             self.response.out.write(response)
